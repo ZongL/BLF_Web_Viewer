@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m venv venv)",
+      "Bash(./venv/Scripts/pip install *)",
+      "Bash(./venv/Scripts/python app.py)",
+      "Bash(./venv/Scripts/python -c ' *)",
+      "Bash(curl -s http://localhost:8080/ -o /dev/null -w \"%{http_code}\")"
+    ]
+  }
+}
