@@ -186,6 +186,214 @@
 
     </main>
 
+    <!-- Parsing Pipeline Diagram -->
+    <section class="max-w-7xl mx-auto px-6 py-10 mt-8 border-t border-gray-200">
+        <h2 class="text-lg font-bold text-gray-800 mb-2">BLF 解析 & CAN 信号解码原理</h2>
+        <p class="text-sm text-gray-500 mb-6">本程序如何将 BLF 二进制文件转化为可视化 CAN 信号波形</p>
+
+        <!-- Flow Diagram -->
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 overflow-x-auto">
+            <svg viewBox="0 0 1100 520" xmlns="http://www.w3.org/2000/svg" class="w-full min-w-[900px]" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                <defs>
+                    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
+                        <polygon points="0 0, 10 3.5, 0 7" fill="#6366f1"/>
+                    </marker>
+                    <marker id="arrow-gray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
+                        <polygon points="0 0, 10 3.5, 0 7" fill="#9ca3af"/>
+                    </marker>
+                    <linearGradient id="grad-blf" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:1"/>
+                        <stop offset="100%" style="stop-color:#2563eb;stop-opacity:1"/>
+                    </linearGradient>
+                    <linearGradient id="grad-dbc" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" style="stop-color:#10b981;stop-opacity:1"/>
+                        <stop offset="100%" style="stop-color:#059669;stop-opacity:1"/>
+                    </linearGradient>
+                    <linearGradient id="grad-decode" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" style="stop-color:#f59e0b;stop-opacity:1"/>
+                        <stop offset="100%" style="stop-color:#d97706;stop-opacity:1"/>
+                    </linearGradient>
+                    <linearGradient id="grad-chart" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" style="stop-color:#8b5cf6;stop-opacity:1"/>
+                        <stop offset="100%" style="stop-color:#7c3aed;stop-opacity:1"/>
+                    </linearGradient>
+                    <filter id="shadow" x="-4%" y="-4%" width="108%" height="116%">
+                        <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.1"/>
+                    </filter>
+                </defs>
+
+                <!-- ===== Row 1: Input Files ===== -->
+                <!-- BLF File box -->
+                <rect x="30" y="20" width="200" height="90" rx="10" fill="url(#grad-blf)" filter="url(#shadow)"/>
+                <text x="130" y="52" text-anchor="middle" fill="white" font-size="14" font-weight="700">📄 BLF 文件</text>
+                <text x="130" y="72" text-anchor="middle" fill="rgba(255,255,255,0.85)" font-size="11">Binary Logging Format</text>
+                <text x="130" y="89" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-size="10">Vector CANoe / CANalyzer 录制</text>
+
+                <!-- DBC File box -->
+                <rect x="30" y="140" width="200" height="90" rx="10" fill="url(#grad-dbc)" filter="url(#shadow)"/>
+                <text x="130" y="172" text-anchor="middle" fill="white" font-size="14" font-weight="700">📋 DBC 文件</text>
+                <text x="130" y="192" text-anchor="middle" fill="rgba(255,255,255,0.85)" font-size="11">CAN 数据库定义</text>
+                <text x="130" y="209" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-size="10">Message ID → Signal 映射</text>
+
+                <!-- Arrows from files to parsers -->
+                <line x1="230" y1="65" x2="310" y2="65" stroke="#6366f1" stroke-width="2" marker-end="url(#arrow)"/>
+                <line x1="230" y1="185" x2="310" y2="185" stroke="#6366f1" stroke-width="2" marker-end="url(#arrow)"/>
+
+                <!-- ===== Row 1 continued: Parsers ===== -->
+                <!-- python-can parser -->
+                <rect x="310" y="30" width="200" height="70" rx="8" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1.5"/>
+                <text x="410" y="55" text-anchor="middle" fill="#4338ca" font-size="12" font-weight="700">python-can</text>
+                <text x="410" y="72" text-anchor="middle" fill="#6366f1" font-size="11">BLFReader 二进制解析</text>
+                <text x="410" y="87" text-anchor="middle" fill="#9ca3af" font-size="10">解压 → 逐对象迭代</text>
+
+                <!-- cantools decoder -->
+                <rect x="310" y="150" width="200" height="70" rx="8" fill="#ecfdf5" stroke="#a7f3d0" stroke-width="1.5"/>
+                <text x="410" y="175" text-anchor="middle" fill="#065f46" font-size="12" font-weight="700">cantools</text>
+                <text x="410" y="192" text-anchor="middle" fill="#059669" font-size="11">DBC 文件解析</text>
+                <text x="410" y="207" text-anchor="middle" fill="#9ca3af" font-size="10">构建 FrameID → Message 查找表</text>
+
+                <!-- Arrows to CAN Frame box -->
+                <line x1="510" y1="65" x2="580" y2="65" stroke="#6366f1" stroke-width="2" marker-end="url(#arrow)"/>
+                <line x1="510" y1="185" x2="580" y2="185" stroke="#6366f1" stroke-width="2" marker-end="url(#arrow)"/>
+
+                <!-- ===== CAN Frame Extraction ===== -->
+                <rect x="580" y="40" width="180" height="170" rx="10" fill="#faf5ff" stroke="#d8b4fe" stroke-width="1.5"/>
+                <text x="670" y="65" text-anchor="middle" fill="#7c3aed" font-size="13" font-weight="700">CAN 帧提取</text>
+                <line x1="600" y1="75" x2="740" y2="75" stroke="#e9d5ff" stroke-width="1"/>
+
+                <text x="600" y="97" fill="#6b7280" font-size="11" font-family="monospace" font-weight="600">msg.arbitration_id</text>
+                <text x="730" y="97" text-anchor="end" fill="#9ca3af" font-size="10">帧 ID (如 0x123)</text>
+
+                <text x="600" y="120" fill="#6b7280" font-size="11" font-family="monospace" font-weight="600">msg.data</text>
+                <text x="730" y="120" text-anchor="end" fill="#9ca3af" font-size="10">原始字节 [8] / [64]</text>
+
+                <text x="600" y="143" fill="#6b7280" font-size="11" font-family="monospace" font-weight="600">msg.timestamp</text>
+                <text x="730" y="143" text-anchor="end" fill="#9ca3af" font-size="10">纳秒级时间戳</text>
+
+                <text x="600" y="166" fill="#6b7280" font-size="11" font-family="monospace" font-weight="600">msg.channel</text>
+                <text x="730" y="166" text-anchor="end" fill="#9ca3af" font-size="10">CAN 通道号</text>
+
+                <text x="600" y="196" fill="#6b7280" font-size="11" font-family="monospace" font-weight="600">DLC</text>
+                <text x="730" y="196" text-anchor="end" fill="#9ca3af" font-size="10">数据长度 (0-64)</text>
+
+                <!-- Arrow down to decode -->
+                <line x1="670" y1="210" x2="670" y2="260" stroke="#6366f1" stroke-width="2" marker-end="url(#arrow)"/>
+                <!-- Label on arrow -->
+                <rect x="605" y="225" width="130" height="22" rx="4" fill="#f3f4f6"/>
+                <text x="670" y="240" text-anchor="middle" fill="#6b7280" font-size="10">按 FrameID 查找 DBC</text>
+
+                <!-- ===== Signal Decoding ===== -->
+                <rect x="530" y="260" width="280" height="120" rx="10" fill="#fffbeb" stroke="#fcd34d" stroke-width="1.5"/>
+                <text x="670" y="285" text-anchor="middle" fill="#92400e" font-size="13" font-weight="700">⚙ 信号解码（DBC Decode）</text>
+                <line x1="550" y1="295" x2="790" y2="295" stroke="#fde68a" stroke-width="1"/>
+
+                <!-- Step 1 -->
+                <circle cx="560" cy="315" r="9" fill="#fbbf24"/>
+                <text x="560" y="319" text-anchor="middle" fill="white" font-size="10" font-weight="700">1</text>
+                <text x="575" y="319" fill="#78350f" font-size="11">按 bit position + length 提取原始值</text>
+
+                <!-- Step 2 -->
+                <circle cx="560" cy="340" r="9" fill="#fbbf24"/>
+                <text x="560" y="344" text-anchor="middle" fill="white" font-size="10" font-weight="700">2</text>
+                <text x="575" y="344" fill="#78350f" font-size="11">physical = raw_value × factor + offset</text>
+
+                <!-- Step 3 -->
+                <circle cx="560" cy="365" r="9" fill="#fbbf24"/>
+                <text x="560" y="369" text-anchor="middle" fill="white" font-size="10" font-weight="700">3</text>
+                <text x="575" y="369" fill="#78350f" font-size="11">输出：{ "Msg.Signal": [(t, value), ...] }</text>
+
+                <!-- Arrow down to LTTB -->
+                <line x1="670" y1="380" x2="670" y2="420" stroke="#6366f1" stroke-width="2" marker-end="url(#arrow)"/>
+
+                <!-- ===== LTTB Downsampling ===== -->
+                <rect x="530" y="420" width="280" height="55" rx="8" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
+                <text x="670" y="443" text-anchor="middle" fill="#166534" font-size="12" font-weight="700">📉 LTTB 降采样</text>
+                <text x="670" y="462" text-anchor="middle" fill="#9ca3af" font-size="10">保留波形特征，压缩至 ≤5000 点</text>
+
+                <!-- Arrow to ECharts -->
+                <line x1="670" y1="475" x2="670" y2="500" stroke="#6366f1" stroke-width="2" marker-end="url(#arrow)"/>
+
+                <!-- ===== ECharts Output ===== -->
+                <rect x="530" y="498" width="280" height="18" rx="4" fill="url(#grad-chart)" filter="url(#shadow)"/>
+                <text x="670" y="511" text-anchor="middle" fill="white" font-size="11" font-weight="700">📊 ECharts 多信号同步波形图</text>
+
+                <!-- ===== Right side: BLF Binary Structure ===== -->
+                <rect x="850" y="30" width="220" height="210" rx="10" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1.5"/>
+                <text x="960" y="55" text-anchor="middle" fill="#475569" font-size="12" font-weight="700">BLF 二进制结构</text>
+                <line x1="870" y1="65" x2="1050" y2="65" stroke="#e2e8f0" stroke-width="1"/>
+
+                <!-- File header block -->
+                <rect x="870" y="75" width="180" height="35" rx="4" fill="#3b82f6" opacity="0.15" stroke="#93c5fd" stroke-width="1"/>
+                <text x="960" y="97" text-anchor="middle" fill="#1d4ed8" font-size="11" font-weight="600">File Header (144B)</text>
+
+                <!-- Object blocks -->
+                <rect x="870" y="120" width="85" height="30" rx="4" fill="#8b5cf6" opacity="0.15" stroke="#c4b5fd" stroke-width="1"/>
+                <text x="912" y="139" text-anchor="middle" fill="#6d28d9" font-size="9" font-weight="600">Obj Header</text>
+
+                <rect x="965" y="120" width="85" height="30" rx="4" fill="#f59e0b" opacity="0.15" stroke="#fcd34d" stroke-width="1"/>
+                <text x="1007" y="139" text-anchor="middle" fill="#b45309" font-size="9" font-weight="600">CAN Data</text>
+
+                <rect x="870" y="160" width="85" height="30" rx="4" fill="#8b5cf6" opacity="0.15" stroke="#c4b5fd" stroke-width="1"/>
+                <text x="912" y="179" text-anchor="middle" fill="#6d28d9" font-size="9" font-weight="600">Obj Header</text>
+
+                <rect x="965" y="160" width="85" height="30" rx="4" fill="#f59e0b" opacity="0.15" stroke="#fcd34d" stroke-width="1"/>
+                <text x="1007" y="179" text-anchor="middle" fill="#b45309" font-size="9" font-weight="600">CAN Data</text>
+
+                <text x="960" y="210" text-anchor="middle" fill="#9ca3af" font-size="10">… Object N …</text>
+
+                <!-- Arrow from BLF structure to python-can -->
+                <line x1="850" y1="65" x2="520" y2="55" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow-gray)"/>
+                <text x="700" y="45" fill="#9ca3af" font-size="10">逐对象读取</text>
+
+                <!-- ===== Right side: DBC Signal Definition ===== -->
+                <rect x="850" y="260" width="220" height="160" rx="10" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1.5"/>
+                <text x="960" y="285" text-anchor="middle" fill="#475569" font-size="12" font-weight="700">DBC 信号定义示例</text>
+                <line x1="870" y1="295" x2="1050" y2="295" stroke="#e2e8f0" stroke-width="1"/>
+
+                <text x="870" y="318" fill="#6b7280" font-size="10" font-family="monospace">BO_ 260 Msg_Engine: 8</text>
+                <text x="870" y="338" fill="#6b7280" font-size="10" font-family="monospace">  SG_ RPM : 7|16@0+ (0.25,0)</text>
+                <text x="870" y="355" fill="#9ca3af" font-size="9">    ↑ bit7起 长16bit 因子0.25 偏移0</text>
+                <text x="870" y="375" fill="#6b7280" font-size="10" font-family="monospace">  SG_ Temp : 23|8@0+ (1,-40)"deg"</text>
+                <text x="870" y="395" fill="#9ca3af" font-size="9">    ↑ bit23起 长8bit 因子1 偏移-40</text>
+
+                <!-- Arrow from DBC structure to cantools -->
+                <line x1="850" y1="310" x2="520" y2="195" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow-gray)"/>
+                <text x="700" y="240" fill="#9ca3af" font-size="10">解析信号映射</text>
+
+                <!-- ===== Legend ===== -->
+                <rect x="30" y="280" width="440" height="240" rx="10" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1"/>
+                <text x="250" y="305" text-anchor="middle" fill="#475569" font-size="13" font-weight="700">处理流程概览</text>
+                <line x1="50" y1="315" x2="450" y2="315" stroke="#e2e8f0" stroke-width="1"/>
+
+                <!-- Flow steps -->
+                <circle cx="70" cy="340" r="12" fill="url(#grad-blf)"/>
+                <text x="70" y="344" text-anchor="middle" fill="white" font-size="11" font-weight="700">1</text>
+                <text x="92" y="344" fill="#374151" font-size="12" font-weight="600">文件上传</text>
+                <text x="92" y="360" fill="#9ca3af" font-size="10">用户上传 BLF + DBC 文件到服务端</text>
+
+                <circle cx="70" cy="385" r="12" fill="url(#grad-blf)"/>
+                <text x="70" y="389" text-anchor="middle" fill="white" font-size="11" font-weight="700">2</text>
+                <text x="92" y="389" fill="#374151" font-size="12" font-weight="600">BLF 二进制解析</text>
+                <text x="92" y="405" fill="#9ca3af" font-size="10">python-can 读取压缩的 BLF 流，逐对象提取 CAN 帧</text>
+
+                <circle cx="70" cy="430" r="12" fill="url(#grad-dbc)"/>
+                <text x="70" y="434" text-anchor="middle" fill="white" font-size="11" font-weight="700">3</text>
+                <text x="92" y="434" fill="#374151" font-size="12" font-weight="600">DBC 信号解码</text>
+                <text x="92" y="450" fill="#9ca3af" font-size="10">按仲裁 ID 查找信号定义，从原始字节中提取 bit 并转换物理值</text>
+
+                <circle cx="70" cy="475" r="12" fill="url(#grad-decode)"/>
+                <text x="70" y="479" text-anchor="middle" fill="white" font-size="11" font-weight="700">4</text>
+                <text x="92" y="479" fill="#374151" font-size="12" font-weight="600">降采样 & 可视化</text>
+                <text x="92" y="495" fill="#9ca3af" font-size="10">LTTB 算法保留波形特征，ECharts 渲染多信号同步时序图</text>
+
+                <!-- Connecting dotted line -->
+                <line x1="70" y1="352" x2="70" y2="373" stroke="#d1d5db" stroke-width="1" stroke-dasharray="3,3"/>
+                <line x1="70" y1="397" x2="70" y2="418" stroke="#d1d5db" stroke-width="1" stroke-dasharray="3,3"/>
+                <line x1="70" y1="442" x2="70" y2="463" stroke="#d1d5db" stroke-width="1" stroke-dasharray="3,3"/>
+            </svg>
+        </div>
+    </section>
+
     <!-- BLF Format Reference -->
     <footer class="max-w-7xl mx-auto px-6 py-10 mt-8 border-t border-gray-200">
         <h2 class="text-lg font-bold text-gray-800 mb-4">BLF 文件格式简介</h2>
