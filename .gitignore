@@ -24,8 +24,8 @@ Thumbs.db
 
 # Project
 uploads/
-*.blf
-*.dbc
+
+
 
 
 *.pdf
