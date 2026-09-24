@@ -28,15 +28,34 @@
         <div id="phase-upload">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 <!-- BLF Drop Zone -->
-                <div id="blf-zone" class="drop-zone" ondragover="event.preventDefault(); this.classList.add('drop-zone-active')" ondragleave="this.classList.remove('drop-zone-active')" ondrop="handleDrop(event, 'blf')">
-                    <input type="file" id="blf-input" accept=".blf" class="hidden" onchange="handleFileSelect(event, 'blf')">
-                    <div class="text-center cursor-pointer" onclick="document.getElementById('blf-input').click()">
-                        <svg class="mx-auto h-12 w-12 text-gray-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                        </svg>
-                        <p class="text-lg font-medium text-gray-700">BLF File</p>
-                        <p class="text-sm text-gray-400 mt-1">Drag & drop or click to select</p>
-                        <p id="blf-filename" class="text-sm text-blue-600 mt-2 hidden"></p>
+                <div>
+                    <div id="blf-zone" class="drop-zone" ondragover="event.preventDefault(); this.classList.add('drop-zone-active')" ondragleave="this.classList.remove('drop-zone-active')" ondrop="handleDrop(event, 'blf')">
+                        <input type="file" id="blf-input" accept=".blf" class="hidden" onchange="handleFileSelect(event, 'blf')">
+                        <div class="text-center cursor-pointer" onclick="document.getElementById('blf-input').click()">
+                            <svg class="mx-auto h-12 w-12 text-gray-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                            </svg>
+                            <p class="text-lg font-medium text-gray-700">BLF File</p>
+                            <p class="text-sm text-gray-400 mt-1">Drag & drop or click to select</p>
+                            <p id="blf-filename" class="text-sm text-blue-600 mt-2 hidden"></p>
+                        </div>
+                    </div>
+                    <!-- Crop icon below BLF zone -->
+                    <div class="flex items-center justify-between mt-2">
+                        <div class="flex items-center gap-2">
+                            <button id="crop-btn" onclick="openScrubber()" disabled
+                                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-500 bg-white border border-gray-200 rounded-md hover:border-blue-400 hover:text-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7V4h3M20 7V4h-3M4 17v3h3M20 17v3h-3M7 4v16M17 4v16M4 7h16M4 17h16"/>
+                                </svg>
+                                Crop
+                            </button>
+                            <svg id="crop-spinner" class="hidden animate-spin h-4 w-4 text-blue-500" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"/>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                            </svg>
+                        </div>
+                        <span id="crop-status" class="text-xs text-green-600 hidden"></span>
                     </div>
                 </div>
 
@@ -50,6 +69,35 @@
                         <p class="text-lg font-medium text-gray-700">DBC File(s)</p>
                         <p class="text-sm text-gray-400 mt-1">Drag & drop or click to select (multiple OK)</p>
                         <p id="dbc-filenames" class="text-sm text-blue-600 mt-2 hidden"></p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Timeline Scrubber (hidden by default) -->
+            <div id="scrubber-section" class="hidden mb-6">
+                <div class="scrubber-container">
+                    <div class="scrubber-header">
+                        <span class="scrubber-title">Select Time Range</span>
+                        <span id="scrubber-duration" class="scrubber-info"></span>
+                    </div>
+                    <div id="scrubber-track-wrapper" class="scrubber-track-wrapper">
+                        <div class="scrubber-track"></div>
+                        <div id="scrubber-overlay-left" class="scrubber-overlay-left" style="width:0%"></div>
+                        <div id="scrubber-overlay-right" class="scrubber-overlay-right" style="width:0%"></div>
+                        <div id="scrubber-selection" class="scrubber-selection" style="left:0%;width:100%"></div>
+                        <div id="scrubber-handle-left" class="scrubber-handle" style="left:0%"></div>
+                        <div id="scrubber-handle-right" class="scrubber-handle" style="left:calc(100% - 12px)"></div>
+                    </div>
+                    <div class="scrubber-times">
+                        <span id="scrubber-time-start">0:00</span>
+                        <span id="scrubber-time-end">0:00</span>
+                    </div>
+                    <div id="scrubber-selected-info" class="scrubber-selected-info"></div>
+                    <div class="text-center mt-3">
+                        <button id="start-crop-btn" onclick="startCrop()"
+                            class="px-6 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-500 transition-colors">
+                            Start Crop
+                        </button>
                     </div>
                 </div>
             </div>

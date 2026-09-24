@@ -1,19 +1,25 @@
 /**
  * BLF Parser - Frontend Logic
  *
- * Handles file upload, signal selection, and ECharts chart rendering.
+ * Handles file upload, optional cropping, signal selection, and ECharts chart rendering.
  */
 
 // State
 let blfFile = null;
 let dbcFiles = [];
 let sessionId = null;
+let uploaded = false; // whether files are on server
 let signalList = [];
 let selectedSignals = new Set();
-let charts = []; // kept for compatibility
 let sortColumn = null;
 let sortAsc = true;
-let lastSignalData = null; // cached for refreshChart
+let lastSignalData = null;
+
+// Scrubber state
+let scrubberOpen = false;
+let scrubberDuration = 0;
+let cropStart = 0.0;
+let cropEnd = 1.0;
 
 // ── File Handling ──
 
@@ -38,27 +44,55 @@ function handleFileSelect(event, type) {
 
 function setBlfFile(file) {
     blfFile = file;
+    uploaded = false; // new file, need re-upload
     const el = document.getElementById("blf-filename");
     el.textContent = file.name;
     el.classList.remove("hidden");
     document.getElementById("blf-zone").classList.add("drop-zone-ready");
-    updateAnalyzeBtn();
+    // Reset crop state
+    document.getElementById("scrubber-section").classList.add("hidden");
+    document.getElementById("crop-status").classList.add("hidden");
+    scrubberOpen = false;
+    updateBtns();
 }
 
 function setDbcFiles(files) {
     dbcFiles = files;
+    uploaded = false;
     const el = document.getElementById("dbc-filenames");
     el.textContent = files.map(f => f.name).join(", ");
     el.classList.remove("hidden");
     document.getElementById("dbc-zone").classList.add("drop-zone-ready");
-    updateAnalyzeBtn();
+    updateBtns();
 }
 
-function updateAnalyzeBtn() {
-    document.getElementById("analyze-btn").disabled = !(blfFile && dbcFiles.length);
+function updateBtns() {
+    const ready = blfFile && dbcFiles.length;
+    document.getElementById("analyze-btn").disabled = !ready;
+    document.getElementById("crop-btn").disabled = !ready;
 }
 
-// ── Upload & Parse ──
+// ── Ensure files are uploaded, return session_id ──
+
+async function ensureUploaded() {
+    if (uploaded && sessionId) return sessionId;
+
+    const formData = new FormData();
+    formData.append("blf_file", blfFile);
+    for (const dbc of dbcFiles) {
+        formData.append("dbc_files", dbc);
+    }
+
+    const resp = await fetch("/api/upload", { method: "POST", body: formData });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || "Upload failed");
+
+    sessionId = data.session_id;
+    uploaded = true;
+    return { session_id: data.session_id, scan: data.scan };
+}
+
+// ── Analyze (upload + parse with progress bar) ──
 
 async function analyzeFiles() {
     const btn = document.getElementById("analyze-btn");
@@ -73,34 +107,31 @@ async function analyzeFiles() {
     progress.classList.remove("hidden");
     errorEl.classList.add("hidden");
 
-    // Reset progress bar
     progressBar.style.width = "0%";
     progressPct.textContent = "0%";
     progressText.textContent = "Uploading files...";
     progressDetail.textContent = "";
 
-    const formData = new FormData();
-    formData.append("blf_file", blfFile);
-    for (const dbc of dbcFiles) {
-        formData.append("dbc_files", dbc);
-    }
-
     try {
-        // Step 1: Upload files (returns session_id immediately)
-        const resp = await fetch("/api/upload", { method: "POST", body: formData });
-        const data = await resp.json();
-
-        if (!resp.ok) {
-            throw new Error(data.error || "Upload failed");
+        // Upload if needed
+        if (!uploaded) {
+            await ensureUploaded();
         }
 
-        const sid = data.session_id;
         progressText.textContent = "Parsing BLF file...";
         progressBar.style.width = "5%";
         progressPct.textContent = "5%";
 
-        // Step 2: Poll progress
-        const result = await pollProgress(sid, progressBar, progressPct, progressText, progressDetail);
+        // Start parse (backend uses cropped file if available, otherwise original)
+        const resp = await fetch("/api/parse", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ session_id: sessionId }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || "Parse failed");
+
+        const result = await pollProgress(sessionId, progressBar, progressPct, progressText, progressDetail);
 
         sessionId = result.session_id;
         signalList = result.signals;
@@ -121,11 +152,11 @@ const PHASE_LABELS = {
     finalizing: "Building signal data...",
 };
 
-async function pollProgress(sessionId, barEl, pctEl, textEl, detailEl) {
+async function pollProgress(sid, barEl, pctEl, textEl, detailEl) {
     return new Promise((resolve, reject) => {
         const interval = setInterval(async () => {
             try {
-                const resp = await fetch(`/api/progress/${sessionId}`);
+                const resp = await fetch(`/api/progress/${sid}`);
                 const info = await resp.json();
 
                 if (!resp.ok) {
@@ -134,12 +165,10 @@ async function pollProgress(sessionId, barEl, pctEl, textEl, detailEl) {
                     return;
                 }
 
-                // Update UI based on phase
                 const label = PHASE_LABELS[info.phase] || info.phase;
                 textEl.textContent = label;
 
                 if (info.phase === "parsing" && info.total > 0) {
-                    // Progress is 5%-90% during parsing
                     const rawPct = Math.min(info.current / info.total, 1);
                     const pct = Math.round(5 + rawPct * 85);
                     barEl.style.width = pct + "%";
@@ -166,7 +195,6 @@ async function pollProgress(sessionId, barEl, pctEl, textEl, detailEl) {
                     if (info.error) {
                         reject(new Error(info.error));
                     } else {
-                        // Brief pause to show 100%
                         setTimeout(() => resolve(info.result), 300);
                     }
                 }
@@ -178,20 +206,210 @@ async function pollProgress(sessionId, barEl, pctEl, textEl, detailEl) {
     });
 }
 
+// ── Scrubber ──
+
+async function openScrubber() {
+    if (scrubberOpen) {
+        document.getElementById("scrubber-section").classList.add("hidden");
+        scrubberOpen = false;
+        return;
+    }
+
+    const errorEl = document.getElementById("upload-error");
+    const spinner = document.getElementById("crop-spinner");
+    const cropBtn = document.getElementById("crop-btn");
+    errorEl.classList.add("hidden");
+
+    spinner.classList.remove("hidden");
+    cropBtn.disabled = true;
+
+    try {
+        const result = await ensureUploaded();
+        initScrubber(result.scan.duration);
+        document.getElementById("scrubber-section").classList.remove("hidden");
+        scrubberOpen = true;
+    } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.classList.remove("hidden");
+    } finally {
+        spinner.classList.add("hidden");
+        cropBtn.disabled = false;
+    }
+}
+
+async function startCrop() {
+    const btn = document.getElementById("start-crop-btn");
+    const errorEl = document.getElementById("upload-error");
+    const statusEl = document.getElementById("crop-status");
+
+    btn.disabled = true;
+    btn.textContent = "Cropping...";
+    errorEl.classList.add("hidden");
+
+    try {
+        const resp = await fetch("/api/crop", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                session_id: sessionId,
+                start_ratio: cropStart,
+                end_ratio: cropEnd,
+            }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || "Crop failed");
+
+        // Show success status
+        const startPct = (cropStart * 100).toFixed(0);
+        const endPct = (cropEnd * 100).toFixed(0);
+        statusEl.textContent = `Cropped: ${startPct}%~${endPct}% (${data.kept.toLocaleString()} msgs)`;
+        statusEl.classList.remove("hidden");
+
+        // Hide scrubber
+        document.getElementById("scrubber-section").classList.add("hidden");
+        scrubberOpen = false;
+    } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.classList.remove("hidden");
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Start Crop";
+    }
+}
+
+function formatTime(seconds) {
+    const m = Math.floor(seconds / 60);
+    const s = (seconds % 60).toFixed(1);
+    return m > 0 ? `${m}:${s.padStart(4, "0")}` : `${s}s`;
+}
+
+function initScrubber(duration) {
+    scrubberDuration = duration;
+    cropStart = 0.0;
+    cropEnd = 1.0;
+
+    document.getElementById("scrubber-duration").textContent = `Total: ${formatTime(duration)}`;
+    updateScrubberUI();
+
+    const wrapper = document.getElementById("scrubber-track-wrapper");
+    const handleL = document.getElementById("scrubber-handle-left");
+    const handleR = document.getElementById("scrubber-handle-right");
+
+    // Remove old listeners by cloning
+    const newHandleL = handleL.cloneNode(true);
+    const newHandleR = handleR.cloneNode(true);
+    handleL.parentNode.replaceChild(newHandleL, handleL);
+    handleR.parentNode.replaceChild(newHandleR, handleR);
+
+    setupHandleDrag(newHandleL, "start");
+    setupHandleDrag(newHandleR, "end");
+
+    // Click on track to jump nearest handle
+    wrapper.addEventListener("click", (e) => {
+        if (e.target.classList.contains("scrubber-handle")) return;
+        const rect = wrapper.getBoundingClientRect();
+        const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        const distStart = Math.abs(ratio - cropStart);
+        const distEnd = Math.abs(ratio - cropEnd);
+        if (distStart < distEnd) {
+            cropStart = Math.min(ratio, cropEnd - 0.01);
+        } else {
+            cropEnd = Math.max(ratio, cropStart + 0.01);
+        }
+        updateScrubberUI();
+    });
+}
+
+function setupHandleDrag(handle, side) {
+    handle.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        handle.classList.add("active");
+        const wrapper = document.getElementById("scrubber-track-wrapper");
+        const rect = wrapper.getBoundingClientRect();
+
+        const onMove = (ev) => {
+            const ratio = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+            if (side === "start") {
+                cropStart = Math.min(ratio, cropEnd - 0.01);
+            } else {
+                cropEnd = Math.max(ratio, cropStart + 0.01);
+            }
+            updateScrubberUI();
+        };
+
+        const onUp = () => {
+            handle.classList.remove("active");
+            document.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseup", onUp);
+        };
+
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+    });
+
+    handle.addEventListener("touchstart", (e) => {
+        e.preventDefault();
+        handle.classList.add("active");
+        const wrapper = document.getElementById("scrubber-track-wrapper");
+        const rect = wrapper.getBoundingClientRect();
+
+        const onMove = (ev) => {
+            const touch = ev.touches[0];
+            const ratio = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
+            if (side === "start") {
+                cropStart = Math.min(ratio, cropEnd - 0.01);
+            } else {
+                cropEnd = Math.max(ratio, cropStart + 0.01);
+            }
+            updateScrubberUI();
+        };
+
+        const onEnd = () => {
+            handle.classList.remove("active");
+            document.removeEventListener("touchmove", onMove);
+            document.removeEventListener("touchend", onEnd);
+        };
+
+        document.addEventListener("touchmove", onMove, { passive: false });
+        document.addEventListener("touchend", onEnd);
+    });
+}
+
+function updateScrubberUI() {
+    const leftPct = (cropStart * 100).toFixed(2);
+    const rightPct = (cropEnd * 100).toFixed(2);
+    const selWidth = ((cropEnd - cropStart) * 100).toFixed(2);
+
+    document.getElementById("scrubber-overlay-left").style.width = leftPct + "%";
+    document.getElementById("scrubber-overlay-right").style.width = (100 - cropEnd * 100).toFixed(2) + "%";
+    document.getElementById("scrubber-selection").style.left = leftPct + "%";
+    document.getElementById("scrubber-selection").style.width = selWidth + "%";
+    document.getElementById("scrubber-handle-left").style.left = `calc(${leftPct}% - 6px)`;
+    document.getElementById("scrubber-handle-right").style.left = `calc(${rightPct}% - 6px)`;
+
+    const startTime = scrubberDuration * cropStart;
+    const endTime = scrubberDuration * cropEnd;
+    document.getElementById("scrubber-time-start").textContent = formatTime(startTime);
+    document.getElementById("scrubber-time-end").textContent = formatTime(endTime);
+
+    const selectedDur = endTime - startTime;
+    const selectedPct = ((cropEnd - cropStart) * 100).toFixed(1);
+    document.getElementById("scrubber-selected-info").textContent =
+        `Selected: ${formatTime(selectedDur)} (${selectedPct}%)`;
+}
+
 // ── Signal Selector ──
 
 function showSignalSelector(data) {
     document.getElementById("phase-upload").classList.add("hidden");
     document.getElementById("phase-signals").classList.remove("hidden");
 
-    // Summary
     document.getElementById("summary-msgs").textContent = data.summary.msg_count.toLocaleString();
     const dur = data.summary.duration;
     document.getElementById("summary-duration").textContent =
         dur >= 60 ? `${(dur / 60).toFixed(1)}m` : `${dur.toFixed(1)}s`;
     document.getElementById("summary-channels").textContent = data.summary.channels.length;
 
-    // Undecoded IDs
     if (data.undecoded_ids.length > 0) {
         const warning = document.getElementById("undecoded-warning");
         warning.classList.remove("hidden");
@@ -342,10 +560,10 @@ function renderCharts(signalData) {
     const keys = Object.keys(signalData);
     const n = keys.length;
 
-    // Calculate container height: each panel ~120px + 40px for bottom slider
+    const topPadding = 20;
     const panelHeight = 120;
     const sliderSpace = 45;
-    const totalHeight = n * panelHeight + sliderSpace;
+    const totalHeight = topPadding + n * panelHeight + sliderSpace;
     wrapper.style.height = totalHeight + "px";
 
     mainChart = echarts.init(wrapper);
@@ -357,7 +575,6 @@ function renderCharts(signalData) {
     const graphicElements = [];
     const axisPointerLinks = [];
 
-    // Gap between panels
     const gap = 8;
     const leftMargin = 50;
     const rightMargin = 20;
@@ -368,8 +585,7 @@ function renderCharts(signalData) {
         const label = sig.unit ? `${key} [${sig.unit}]` : key;
         const isLast = idx === n - 1;
 
-        // Each grid is a horizontal strip
-        const topPx = idx * panelHeight;
+        const topPx = topPadding + idx * panelHeight;
         const heightPx = panelHeight - gap;
 
         grids.push({
@@ -382,7 +598,6 @@ function renderCharts(signalData) {
         xAxes.push({
             type: "value",
             gridIndex: idx,
-            // Only show axis label and name on the last panel
             axisLabel: { show: isLast, color: "#6b7280", fontSize: 10 },
             axisLine: { lineStyle: { color: "#e5e7eb" } },
             axisTick: { show: isLast },
@@ -401,7 +616,6 @@ function renderCharts(signalData) {
             splitNumber: 3,
         });
 
-        // Signal name label at top-right of each panel
         graphicElements.push({
             type: "text",
             right: rightMargin + 8,
@@ -417,6 +631,7 @@ function renderCharts(signalData) {
         });
 
         series.push({
+            name: key,
             type: "line",
             xAxisIndex: idx,
             yAxisIndex: idx,
@@ -429,7 +644,6 @@ function renderCharts(signalData) {
         });
     });
 
-    // Link all x-axes for synchronized crosshair
     axisPointerLinks.push({ xAxisIndex: keys.map((_, i) => i) });
 
     const option = {
@@ -444,6 +658,23 @@ function renderCharts(signalData) {
             backgroundColor: "#fff",
             borderColor: "#e5e7eb",
             textStyle: { color: "#374151", fontSize: 11 },
+            order: "seriesAsc",
+            formatter: function(params) {
+                if (!params || params.length === 0) return "";
+                const time = params[0].axisValue;
+                let html = `<div style="font-weight:bold;margin-bottom:4px;color:#374151;">${parseFloat(time).toFixed(3)}s</div>`;
+                for (let i = 0; i < params.length; i++) {
+                    const p = params[i];
+                    const color = p.color;
+                    const value = typeof p.value === 'object' ? p.value[1] : p.value;
+                    html += `<div style="display:flex;align-items:center;gap:6px;padding:1px 0;">`
+                         + `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};"></span>`
+                         + `<span style="flex:1;">${p.seriesName}</span>`
+                         + `<span style="font-weight:500;margin-left:12px;">${value}</span>`
+                         + `</div>`;
+                }
+                return html;
+            },
         },
         axisPointer: {
             link: axisPointerLinks,
@@ -452,7 +683,6 @@ function renderCharts(signalData) {
         xAxis: xAxes,
         yAxis: yAxes,
         graphic: graphicElements,
-        // Single shared dataZoom controlling all x-axes
         dataZoom: [
             {
                 type: "slider",

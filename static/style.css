@@ -56,6 +56,110 @@ input[type="checkbox"] {
     accent-color: #3b82f6;
 }
 
+/* Timeline Scrubber */
+.scrubber-container {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.75rem;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1rem;
+}
+.scrubber-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+}
+.scrubber-header .scrubber-title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #374151;
+}
+.scrubber-header .scrubber-info {
+    font-size: 0.75rem;
+    color: #6b7280;
+}
+.scrubber-track-wrapper {
+    position: relative;
+    height: 48px;
+    user-select: none;
+}
+.scrubber-track {
+    position: absolute;
+    top: 16px;
+    left: 0;
+    right: 0;
+    height: 16px;
+    background: #f3f4f6;
+    border-radius: 4px;
+    overflow: hidden;
+}
+.scrubber-overlay-left,
+.scrubber-overlay-right {
+    position: absolute;
+    top: 16px;
+    height: 16px;
+    background: rgba(0, 0, 0, 0.15);
+    pointer-events: none;
+}
+.scrubber-overlay-left {
+    left: 0;
+    border-radius: 4px 0 0 4px;
+}
+.scrubber-overlay-right {
+    right: 0;
+    border-radius: 0 4px 4px 0;
+}
+.scrubber-selection {
+    position: absolute;
+    top: 16px;
+    height: 16px;
+    background: rgba(59, 130, 246, 0.25);
+    border-top: 2px solid #3b82f6;
+    border-bottom: 2px solid #3b82f6;
+    pointer-events: none;
+}
+.scrubber-handle {
+    position: absolute;
+    top: 10px;
+    width: 12px;
+    height: 28px;
+    background: #3b82f6;
+    border-radius: 3px;
+    cursor: ew-resize;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s;
+}
+.scrubber-handle:hover,
+.scrubber-handle.active {
+    background: #2563eb;
+}
+.scrubber-handle::before {
+    content: "";
+    width: 2px;
+    height: 12px;
+    background: rgba(255, 255, 255, 0.6);
+    border-radius: 1px;
+}
+.scrubber-times {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 0.5rem;
+    font-size: 0.7rem;
+    color: #9ca3af;
+    font-variant-numeric: tabular-nums;
+}
+.scrubber-selected-info {
+    text-align: center;
+    margin-top: 0.25rem;
+    font-size: 0.8rem;
+    color: #3b82f6;
+    font-weight: 500;
+}
+
 /* Chart cards */
 .chart-card {
     background: #fff;

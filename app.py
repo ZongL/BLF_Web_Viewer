@@ -6,6 +6,7 @@ and retrieving decoded signal time-series data.
 """
 
 import os
+import sys
 import time
 import uuid
 import threading
@@ -14,11 +15,19 @@ from pathlib import Path
 
 from flask import Flask, request, jsonify, redirect
 
-from parser import parse_blf, get_signal_data
+from parser import parse_blf, get_signal_data, scan_blf, crop_blf
 
-app = Flask(__name__, static_folder="static", static_url_path="/static")
+# PyInstaller bundle support
+if getattr(sys, 'frozen', False):
+    BUNDLE_DIR = Path(sys._MEIPASS)       # static files live here (read-only)
+    EXE_DIR = Path(sys.executable).parent  # uploads live here (persistent)
+else:
+    BUNDLE_DIR = Path(__file__).parent
+    EXE_DIR = BUNDLE_DIR
 
-UPLOAD_DIR = Path(__file__).parent / "uploads"
+app = Flask(__name__, static_folder=str(BUNDLE_DIR / "static"), static_url_path="/static")
+
+UPLOAD_DIR = EXE_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 # In-memory session store: {session_id: {data, created_at}}
@@ -37,8 +46,13 @@ def _gc_sessions():
     now = time.time()
     expired = [sid for sid, s in sessions.items() if now - s["created_at"] > SESSION_TTL]
     for sid in expired:
+        session = sessions[sid]
+        # Clean up cropped file if exists
+        cropped = session.get("cropped_path")
+        if cropped and cropped.exists():
+            cropped.unlink()
         # Clean up uploaded files
-        session_dir = UPLOAD_DIR / sid
+        session_dir = session.get("session_dir", UPLOAD_DIR / sid)
         if session_dir.exists():
             for f in session_dir.iterdir():
                 f.unlink()
@@ -87,9 +101,81 @@ def upload():
         dbc.save(str(dbc_path))
         dbc_paths.append(dbc_path)
 
+    # Quick scan for time range
+    try:
+        scan_result = scan_blf(blf_path)
+    except Exception as e:
+        return jsonify({"error": f"Failed to scan BLF: {e}"}), 400
+
+    # Store session (files kept until parse or GC)
+    sessions[session_id] = {
+        "blf_path": blf_path,
+        "dbc_paths": dbc_paths,
+        "session_dir": session_dir,
+        "created_at": time.time(),
+    }
+
+    return jsonify({
+        "session_id": session_id,
+        "scan": scan_result,
+    })
+
+
+@app.route("/api/crop", methods=["POST"])
+def crop():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    session_id = data.get("session_id")
+    start_ratio = float(data.get("start_ratio", 0.0))
+    end_ratio = float(data.get("end_ratio", 1.0))
+
+    if not session_id or session_id not in sessions:
+        return jsonify({"error": "Session not found or expired"}), 404
+
+    session = sessions[session_id]
+    blf_path = session["blf_path"]
+    session_dir = session["session_dir"]
+
+    try:
+        cropped_path = session_dir / "cropped.blf"
+        kept, total = crop_blf(blf_path, cropped_path, start_ratio, end_ratio)
+        session["cropped_path"] = cropped_path
+        session["crop_info"] = {
+            "start_ratio": start_ratio,
+            "end_ratio": end_ratio,
+            "kept": kept,
+            "total": total,
+        }
+        session["created_at"] = time.time()
+        return jsonify({
+            "ok": True,
+            "kept": kept,
+            "total": total,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/parse", methods=["POST"])
+def parse():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    session_id = data.get("session_id")
+
+    if not session_id or session_id not in sessions:
+        return jsonify({"error": "Session not found or expired"}), 404
+
+    session = sessions[session_id]
+    blf_path = session.get("cropped_path", session["blf_path"])
+    dbc_paths = session["dbc_paths"]
+
     # Initialize progress
     progress_store[session_id] = {
-        "phase": "uploading",
+        "phase": "loading_dbc",
         "current": 0,
         "total": 0,
         "error": None,
@@ -108,11 +194,8 @@ def upload():
         try:
             parsed = parse_blf(blf_path, dbc_paths, progress_cb=on_progress)
 
-            # Cache session
-            sessions[session_id] = {
-                "data": parsed,
-                "created_at": time.time(),
-            }
+            sessions[session_id]["data"] = parsed
+            sessions[session_id]["created_at"] = time.time()
 
             progress_store[session_id].update({
                 "phase": "done",
@@ -130,12 +213,6 @@ def upload():
                 "error": str(e),
                 "done": True,
             })
-        finally:
-            # Clean up uploaded files
-            if session_dir.exists():
-                for f in session_dir.iterdir():
-                    f.unlink()
-                session_dir.rmdir()
 
     threading.Thread(target=_parse, daemon=True).start()
 

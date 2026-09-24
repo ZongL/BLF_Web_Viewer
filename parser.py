@@ -13,6 +13,46 @@ import can
 import cantools
 
 
+def scan_blf(blf_path):
+    """Quick scan: read only timestamps and message count. No DBC decoding."""
+    first_ts = None
+    last_ts = None
+    count = 0
+    with can.BLFReader(str(blf_path)) as reader:
+        for msg in reader:
+            if first_ts is None:
+                first_ts = msg.timestamp
+            last_ts = msg.timestamp
+            count += 1
+    duration = (last_ts - first_ts) if (first_ts is not None and last_ts is not None) else 0
+    return {
+        "first_ts": first_ts,
+        "last_ts": last_ts,
+        "msg_count": count,
+        "duration": round(duration, 3),
+    }
+
+
+def crop_blf(input_path, output_path, start_ratio=0.0, end_ratio=1.0):
+    """Crop a BLF file by time ratio. Returns (kept_msgs, total_msgs)."""
+    scan = scan_blf(input_path)
+    if scan["first_ts"] is None or scan["msg_count"] == 0:
+        return 0, 0
+
+    duration = scan["last_ts"] - scan["first_ts"]
+    crop_start = scan["first_ts"] + duration * start_ratio
+    crop_end = scan["first_ts"] + duration * end_ratio
+
+    kept = 0
+    with can.BLFReader(str(input_path)) as reader:
+        with can.BLFWriter(str(output_path)) as writer:
+            for msg in reader:
+                if crop_start <= msg.timestamp <= crop_end:
+                    writer.on_message_received(msg)
+                    kept += 1
+    return kept, scan["msg_count"]
+
+
 def load_dbc_files(dbc_paths):
     """Load one or more DBC files and merge into a single database."""
     db = cantools.database.Database()
